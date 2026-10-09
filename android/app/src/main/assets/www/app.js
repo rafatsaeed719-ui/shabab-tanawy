@@ -56,6 +56,7 @@ function dayLabel(key) {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
 }
+const signed = (n) => (n < 0 ? "−" + ar(-n) : "+" + ar(n));
 const keyNum = (k) => { const [y, m, d] = k.split("-").map(Number); return y * 10000 + m * 100 + d; };
 function timeLabel(ts) {
   if (!ts?.toDate) return "";
@@ -91,8 +92,8 @@ $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet" || e.t
 /* ================= الحالة ================= */
 const S = {
   user: null, isAdmin: false,
-  myAtt: [], mySubs: [], tasks: [], photos: [], events: [],
-  allUsers: [], allAtt: [], allSubs: [], admins: new Set()
+  myAtt: [], myAdj: [], mySubs: [], tasks: [], photos: [], events: [],
+  allUsers: [], allAtt: [], allAdj: [], allSubs: [], admins: new Set()
 };
 let unsubs = [];
 let adminUnsubs = [];
@@ -115,7 +116,8 @@ $("tab-signup").onclick = () => setMode("signup");
 
 const AUTH_ERR = {
   "auth/invalid-email": "الإيميل مكتوب غلط.",
-  "auth/invalid-credential": "الإيميل أو الباسورد غلط.",
+  "auth/invalid-credential": "الإيميل أو الباسورد غلط. لو دي أول مرة تدخل، اضغط \"حساب جديد\" فوق واعمل حسابك الأول.",
+  "auth/operation-not-allowed": "الدخول بالإيميل لسه متفعلش في Firebase (Authentication ← Email/Password).",
   "auth/wrong-password": "الباسورد غلط.",
   "auth/user-not-found": "مفيش حساب بالإيميل ده. اعمل حساب جديد.",
   "auth/email-already-in-use": "الإيميل ده عليه حساب بالفعل. ادخل من \"دخول\".",
@@ -172,7 +174,9 @@ onAuthStateChanged(auth, async (u) => {
 function startListeners() {
   const uid = S.user.uid;
   unsubs.push(onSnapshot(query(collection(db, "attendance"), where("uid", "==", uid)), (s) => {
-    S.myAtt = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) })).sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0));
+    const all = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) })).sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0));
+    S.myAtt = all.filter((a) => a.kind !== "adjust");
+    S.myAdj = all.filter((a) => a.kind === "adjust");
     renderHome();
   }));
   unsubs.push(onSnapshot(query(collection(db, "submissions"), where("uid", "==", uid)), (s) => {
@@ -204,7 +208,12 @@ function setAdmin(on) {
   if (!on) return;
   syncClockOffset();
   adminUnsubs.push(onSnapshot(collection(db, "users"), (s) => { S.allUsers = s.docs.map((d) => ({ id: d.id, ...d.data() })); renderAdmin(); }));
-  adminUnsubs.push(onSnapshot(collection(db, "attendance"), (s) => { S.allAtt = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) })); renderAdmin(); }));
+  adminUnsubs.push(onSnapshot(collection(db, "attendance"), (s) => {
+    const all = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) }));
+    S.allAtt = all.filter((a) => a.kind !== "adjust");
+    S.allAdj = all.filter((a) => a.kind === "adjust");
+    renderAdmin();
+  }));
   adminUnsubs.push(onSnapshot(collection(db, "submissions"), (s) => { S.allSubs = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) })); renderAdmin(); renderTasks(); }));
   adminUnsubs.push(onSnapshot(collection(db, "admins"), (s) => { S.admins = new Set(s.docs.map((d) => d.id)); renderAdmin(); }));
   renderTasks(); renderPhotos(); renderEvents();
@@ -319,15 +328,19 @@ function renderHome() {
   const cnt = { green: 0, yellow: 0, red: 0 };
   let attPts = 0;
   S.myAtt.forEach((a) => { cnt[a.color] = (cnt[a.color] || 0) + 1; attPts += a.points || 0; });
-  const extra = S.mySubs.filter((s) => s.status === "approved").reduce((t, s) => t + (s.points || 0), 0);
+  const extra = S.mySubs.filter((s) => s.status === "approved").reduce((t, s) => t + (s.points || 0), 0)
+    + S.myAdj.reduce((t, a) => t + (a.points || 0), 0);
   $("total-pts").textContent = ar(attPts + extra);
   $("breakdown").innerHTML = `
     <div class="bd green"><b>${ar(cnt.green * 10)}</b><span>أخضر · ${ar(cnt.green)} مرة</span></div>
     <div class="bd yellow"><b>${ar(cnt.yellow * 5)}</b><span>أصفر · ${ar(cnt.yellow)} مرة</span></div>
     <div class="bd red"><b>${ar(0)}</b><span>أحمر · ${ar(cnt.red)} مرة</span></div>
     <div class="bd white"><b>${ar(extra)}</b><span>نقاط إضافية</span></div>`;
-  $("history").innerHTML = S.myAtt.length
-    ? S.myAtt.map((a) => `<li><span class="dot ${a.color}"></span><span class="d">${esc(dayLabel(a.day))}</span><span class="p">+${ar(a.points)}</span></li>`).join("")
+  const hist = [...S.myAtt, ...S.myAdj].sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0));
+  $("history").innerHTML = hist.length
+    ? hist.map((a) => a.kind === "adjust"
+      ? `<li><span class="dot white"></span><span class="d">${a.points < 0 ? "خصم" : "نقاط"} من القائد${a.reason ? " · " + esc(a.reason) : ""}</span><span class="p">${signed(a.points)}</span></li>`
+      : `<li><span class="dot ${a.color}"></span><span class="d">${esc(dayLabel(a.day))}</span><span class="p">+${ar(a.points)}</span></li>`).join("")
     : `<li><span class="d muted">لسه مسجلتش حضور. أول جمعة جاية الساعة ٧!</span></li>`;
 }
 setInterval(() => { if (!$("v-home").hidden && !$("app").hidden) renderAttCard(); }, 1000);
@@ -485,6 +498,7 @@ function totals() {
   S.allUsers.forEach((u) => (t[u.id] = { att: 0, extra: 0, g: 0, y: 0, r: 0 }));
   S.allAtt.forEach((a) => { const x = (t[a.uid] ||= { att: 0, extra: 0, g: 0, y: 0, r: 0 }); x.att += a.points || 0; x[a.color?.[0]]++; });
   S.allSubs.filter((s) => s.status === "approved").forEach((s) => { (t[s.uid] ||= { att: 0, extra: 0, g: 0, y: 0, r: 0 }).extra += s.points || 0; });
+  S.allAdj.forEach((a) => { (t[a.uid] ||= { att: 0, extra: 0, g: 0, y: 0, r: 0 }).extra += a.points || 0; });
   return t;
 }
 
@@ -532,11 +546,11 @@ function renderAdmin() {
   // الأعضاء مرتبين بالنقاط
   const t = totals();
   const members = [...S.allUsers].sort((a, b) => (t[b.id].att + t[b.id].extra) - (t[a.id].att + t[a.id].extra));
-  $("seg-members").innerHTML = `<p class="eyebrow">${ar(members.length)} عضو · مرتبين بالنقاط</p><ul class="rows">${members.map((u, i) => {
+  $("seg-members").innerHTML = `<p class="eyebrow">${ar(members.length)} عضو · مرتبين بالنقاط · اضغط على أي اسم عشان تضيف أو تخصم نقاط</p><ul class="rows">${members.map((u, i) => {
     const x = t[u.id];
     return `<li data-u="${u.id}" style="cursor:pointer">
       <span class="muted" style="width:22px">${ar(i + 1)}</span>
-      <span class="n">${esc(u.name)}${S.admins.has(u.id) ? ' <span class="tag">خادم</span>' : ""}<small>${ar(x.g)} أخضر · ${ar(x.y)} أصفر · ${ar(x.r)} أحمر · ${ar(x.extra)} إضافي</small></span>
+      <span class="n">${esc(u.name)}${S.admins.has(u.id) ? ' <span class="tag">خادم</span>' : ""}<small>${ar(x.g)} أخضر · ${ar(x.y)} أصفر · ${ar(x.r)} أحمر · ${signed(x.extra)} إضافي</small></span>
       <span class="score">${ar(x.att + x.extra)}</span></li>`;
   }).join("")}</ul>`;
   $("seg-members").querySelectorAll("[data-u]").forEach((li) => (li.onclick = () => memberSheet(li.dataset.u)));
@@ -547,9 +561,22 @@ function memberSheet(uid) {
   const isAdm = S.admins.has(uid);
   const now = cairoNow();
   const has = S.allAtt.some((a) => a.uid === uid && a.day === now.dayKey);
+  const tt = totals()[uid];
+  const adj = S.allAdj.filter((a) => a.uid === uid).sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0)).slice(0, 8);
   sheet(`
     <h3>${esc(u.name)}</h3>
     <p class="muted" style="margin:0" dir="ltr">${esc(u.email || "")}</p>
+    <p style="margin:0"><b style="font-size:22px;font-family:var(--display)">${ar(tt.att + tt.extra)}</b> نقطة</p>
+    <p class="eyebrow" style="margin-top:6px">إضافة أو خصم نقاط</p>
+    <div class="row2">
+      <input type="number" id="adj-n" min="1" max="1000" value="5" aria-label="عدد النقاط">
+      <input type="text" id="adj-r" placeholder="السبب (اختياري)">
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="adj-add" type="button">إضافة +</button>
+      <button class="btn danger" id="adj-sub" type="button">خصم −</button>
+    </div>
+    ${adj.length ? `<ul class="rows">${adj.map((a) => `<li><span class="n">${signed(a.points)}<small>${esc(a.reason || "بدون سبب")}</small></span><button class="btn small ghost" data-undo="${a.id}" type="button">إلغاء</button></li>`).join("")}</ul>` : ""}
     ${has ? `<p class="muted" style="margin:0">حضوره النهارده متسجل.</p>` : `
       <p class="eyebrow" style="margin-top:6px">تسجيل حضور النهارده يدوي</p>
       <div class="actions">
@@ -559,6 +586,22 @@ function memberSheet(uid) {
       </div>`}
     ${uid !== S.user.uid ? `<button class="btn ghost" id="adm" type="button">${isAdm ? "شيل صلاحية الخادم" : "خليه خادم (يقدر يدير التطبيق)"}</button>` : ""}
     <button class="btn ghost" data-close type="button">قفل</button>`, (el) => {
+    const adjust = async (sign) => {
+      const n = parseInt(el.querySelector("#adj-n").value, 10);
+      if (!(n > 0)) return toast("اكتب عدد النقاط.");
+      const reason = el.querySelector("#adj-r").value.trim();
+      try {
+        await addDoc(collection(db, "attendance"), { kind: "adjust", uid, points: sign * n, reason, at: serverTimestamp() });
+        toast(`${sign > 0 ? "اتضاف" : "اتخصم"} ${ar(n)} نقطة لـ ${u.name}`);
+        memberSheet(uid);
+      } catch (_) { toast("مقدرناش نحفظ. اتأكد من الإنترنت."); }
+    };
+    el.querySelector("#adj-add").onclick = () => adjust(1);
+    el.querySelector("#adj-sub").onclick = () => adjust(-1);
+    el.querySelectorAll("[data-undo]").forEach((b) => (b.onclick = async () => {
+      await deleteDoc(doc(db, "attendance", b.dataset.undo));
+      toast("اتلغت."); setTimeout(() => memberSheet(uid), 300);
+    }));
     el.querySelectorAll("[data-m]").forEach((b) => (b.onclick = async () => {
       const L = LEVELS[b.dataset.m];
       await setDoc(doc(db, "attendance", `${now.dayKey}_${uid}`), { uid, day: now.dayKey, color: b.dataset.m, points: L.pts, at: serverTimestamp(), manual: true });

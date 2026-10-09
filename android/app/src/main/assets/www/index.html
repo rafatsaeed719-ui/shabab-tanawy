@@ -129,13 +129,13 @@
     <div class="view" id="v-admin" hidden>
       <h2 class="h2 first">قائد الاجتماع</h2>
       <div class="seg" role="tablist">
-        <button data-seg="today" class="on" type="button">حضور النهارده</button>
+        <button data-seg="members" class="on" type="button">الأسماء والنقاط</button>
+        <button data-seg="today" type="button">حضور النهارده</button>
         <button data-seg="review" type="button">مراجعة <span id="review-count"></span></button>
-        <button data-seg="members" type="button">الأعضاء</button>
       </div>
-      <div class="seg-pane" id="seg-today"></div>
+      <div class="seg-pane" id="seg-members"></div>
+      <div class="seg-pane" id="seg-today" hidden></div>
       <div class="seg-pane" id="seg-review" hidden></div>
-      <div class="seg-pane" id="seg-members" hidden></div>
     </div>
   </main>
 
