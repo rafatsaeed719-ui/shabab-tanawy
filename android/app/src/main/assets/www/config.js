@@ -1,9 +1,11 @@
-// بيانات مشروع Firebase — بتتملي مرة واحدة من إعدادات المشروع (Project settings → Your apps → Web app)
+// بيانات مشروع Firebase (shabab-reda)
 window.FIREBASE_CONFIG = {
-  apiKey: "PUT_API_KEY",
-  authDomain: "PUT_PROJECT_ID.firebaseapp.com",
-  projectId: "PUT_PROJECT_ID",
-  appId: "PUT_APP_ID"
+  apiKey: "AIzaSyBbwutL7-bHVj0iEbo6Zu8gIJDdyRsEcWI",
+  authDomain: "shabab-reda.firebaseapp.com",
+  projectId: "shabab-reda",
+  storageBucket: "shabab-reda.firebasestorage.app",
+  messagingSenderId: "150602552084",
+  appId: "1:150602552084:web:81f77eed615d8addc8e801"
 };
 
 // إيميل المسؤول الرئيسي (المدير)
