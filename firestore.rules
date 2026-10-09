@@ -1,0 +1,94 @@
+rules_version = '2';
+// قواعد أمان اجتماع شباب ثانوي — الكنيسة الرسولية ريدة
+// الحضور بيتحسب بساعة سيرفر Firebase مش ساعة الموبايل، فمحدش يقدر يغش بتغيير الوقت.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.email == 'rafatsaeed719@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // توقيت القاهرة = توقيت السيرفر + فرق الساعات (المدير بيحدثه تلقائي من التطبيق)
+    function offsetHours() {
+      return exists(/databases/$(database)/documents/config/app)
+        ? get(/databases/$(database)/documents/config/app).data.utcOffset
+        : 3;
+    }
+    function local() { return request.time + duration.value(offsetHours(), 'h'); }
+    function mins() { return local().hours() * 60 + local().minutes(); }
+    function dayKey() {
+      return string(local().year()) + '-' + string(local().month()) + '-' + string(local().day());
+    }
+    // الجمعة = 5 (الاتنين = 1 ... الحد = 7)
+    function meetingOpen() { return local().dayOfWeek() == 5 && mins() >= 1140 && mins() < 1260; }
+    function validChoice(d) {
+      return (d.color == 'green'  && d.points == 10 && mins() < 1145)   // لحد ٧:٠٥
+          || (d.color == 'yellow' && d.points == 5  && mins() < 1180)   // لحد ٧:٤٠
+          || (d.color == 'red'    && d.points == 0  && mins() < 1260);  // لحد ٩:٠٠
+    }
+
+    match /config/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin()
+        && request.resource.data.utcOffset is int
+        && request.resource.data.utcOffset >= 2 && request.resource.data.utcOffset <= 3;
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80;
+      allow delete: if isAdmin();
+    }
+
+    match /attendance/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      // الشاب بيسجل لنفسه مرة واحدة في اليوم، في الوقت المفتوح بس
+      allow create: if signedIn()
+        && meetingOpen()
+        && id == dayKey() + '_' + request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.day == dayKey()
+        && request.resource.data.at == request.time
+        && request.resource.data.keys().hasOnly(['uid', 'day', 'color', 'points', 'at'])
+        && validChoice(request.resource.data);
+      // المدير/الخادم يقدر يسجل يدوي أو يعدل أو يمسح
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /tasks/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /submissions/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if signedIn()
+        && id == request.resource.data.taskId + '_' + request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.points == 0
+        && request.resource.data.answer is string && request.resource.data.answer.size() <= 4000
+        && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.active == true;
+      allow update, delete: if isAdmin();
+    }
+
+    match /photos/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /events/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
