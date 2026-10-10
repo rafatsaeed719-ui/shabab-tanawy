@@ -9,16 +9,32 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 /* ================= الإعدادات الثابتة =================
-   مواعيد الجمعة بالدقايق من نص الليل (توقيت القاهرة) */
-const START = 19 * 60;           // ٧:٠٠ مساءً
-const GREEN_END = 19 * 60 + 5;   // ٧:٠٥
-const YELLOW_END = 19 * 60 + 40; // ٧:٤٠
-const END = 21 * 60;             // ٩:٠٠ مساءً
+   مواعيد الاجتماع بالدقايق من نص الليل (توقيت القاهرة)
+   القيم دي الافتراضية، وقائد الاجتماع يقدر يغيرها من التطبيق (بتتحفظ في config/app) */
+const DAYS = ["", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت", "الحد"]; // نفس ترقيم قواعد الأمان
+const SCH = { day: 5, start: 19 * 60, greenEnd: 19 * 60 + 5, yellowEnd: 19 * 60 + 40, end: 21 * 60 };
+let START = SCH.start, END = SCH.end;
 const LEVELS = {
-  green:  { name: "أخضر", pts: 10, until: GREEN_END,  label: "حضور بدري" },
-  yellow: { name: "أصفر", pts: 5,  until: YELLOW_END, label: "تأخير بسيط" },
-  red:    { name: "أحمر", pts: 0,  until: END,        label: "تأخير" }
+  green:  { name: "أخضر", pts: 10, until: SCH.greenEnd },
+  yellow: { name: "أصفر", pts: 5,  until: SCH.yellowEnd },
+  red:    { name: "أحمر", pts: 0,  until: SCH.end }
 };
+function applySchedule(d = {}) {
+  for (const k of Object.keys(SCH)) if (Number.isInteger(d[k])) SCH[k] = d[k];
+  START = SCH.start; END = SCH.end;
+  LEVELS.green.until = SCH.greenEnd; LEVELS.yellow.until = SCH.yellowEnd; LEVELS.red.until = SCH.end;
+  renderScheduleTexts();
+}
+function fmtMins(m) {
+  const h = Math.floor(m / 60), mi = m % 60, h12 = ((h + 11) % 12) + 1;
+  return `${ar(h12)}:${ar(mi).padStart(2, "٠")} ${h < 12 ? "ص" : "م"}`;
+}
+function renderScheduleTexts() {
+  $("meet-when").textContent = `كل ${DAYS[SCH.day]} · من ${fmtMins(SCH.start)} لـ ${fmtMins(SCH.end)}`;
+  $("meet-note").textContent = `أخضر لحد ${fmtMins(SCH.greenEnd)} · أصفر لحد ${fmtMins(SCH.yellowEnd)} · أحمر لحد ${fmtMins(SCH.end)}`;
+  if (S.user) { renderAttCard(); renderHome(); }
+  fillScheduleForm();
+}
 
 /* ================= Firebase ================= */
 const $ = (id) => document.getElementById(id);
@@ -45,7 +61,7 @@ function cairoNow(d = new Date()) {
   const wall = Date.UTC(y, mo - 1, da, h, mi, s);
   return {
     y, mo, da, h, mi, s,
-    friday: p.weekday === "Fri",
+    dow: { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[p.weekday],
     mins: h * 60 + mi,
     secs: h * 3600 + mi * 60 + s,
     dayKey: `${y}-${mo}-${da}`,                       // نفس الشكل اللي في قواعد الأمان
@@ -195,6 +211,7 @@ function startListeners() {
     S.events = s.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderEvents();
   }));
+  unsubs.push(onSnapshot(doc(db, "config", "app"), (s) => applySchedule(s.exists() ? s.data() : {}), () => {}));
   let firstMsgs = true;
   unsubs.push(onSnapshot(query(collection(db, "messages"), orderBy("createdAt", "desc"), limit(30)), (s) => {
     S.messages = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) }));
@@ -253,11 +270,9 @@ function todayRecord() {
   const k = cairoNow().dayKey;
   return S.myAtt.find((a) => a.day === k);
 }
-function nextFridaySeconds(now) {
-  // ثواني لحد الجمعة الجاية الساعة ٧
-  const dow = { Sat: 6, Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5 };
-  const p = Object.fromEntries(CAIRO.formatToParts(new Date()).map((x) => [x.type, x.value]));
-  let days = (5 - dow[p.weekday] + 7) % 7;
+function nextMeetingSeconds(now) {
+  // ثواني لحد بداية الاجتماع الجاي
+  let days = (SCH.day - now.dow + 7) % 7;
   if (days === 0 && now.mins >= START) days = 7;
   return days * 86400 + START * 60 - now.secs;
 }
@@ -267,7 +282,7 @@ function renderAttCard() {
   if (!S.user) return;
   const now = cairoNow();
   const rec = todayRecord();
-  const open = now.friday && now.mins >= START && now.mins < END;
+  const open = now.dow === SCH.day && now.mins >= START && now.mins < END;
 
   if (rec) {
     const L = LEVELS[rec.color] || LEVELS.red;
@@ -283,11 +298,11 @@ function renderAttCard() {
   }
 
   if (!open) {
-    const left = nextFridaySeconds(now);
+    const left = nextMeetingSeconds(now);
     const days = Math.floor(left / 86400);
     c.innerHTML = `
       <p class="eyebrow">التسجيل مقفول دلوقتي</p>
-      <p class="big">بيفتح الجمعة الساعة ٧ مساءً</p>
+      <p class="big">بيفتح ${DAYS[SCH.day]} الساعة ${fmtMins(SCH.start)}</p>
       <p class="clock">${days >= 1 ? `${ar(days)} ${days === 1 ? "يوم" : days === 2 ? "يومين" : "أيام"}` : mmss(left)}</p>
       <p class="muted" style="margin:0">${days >= 1 ? "فاضل على الاجتماع" : "فاضل على فتح التسجيل"}</p>`;
     return;
@@ -351,7 +366,7 @@ function renderHome() {
     ? hist.map((a) => a.kind === "adjust"
       ? `<li><span class="dot white"></span><span class="d">${a.points < 0 ? "خصم" : "نقاط"} من القائد${a.reason ? " · " + esc(a.reason) : ""}</span><span class="p">${signed(a.points)}</span></li>`
       : `<li><span class="dot ${a.color}"></span><span class="d">${esc(dayLabel(a.day))}</span><span class="p">+${ar(a.points)}</span></li>`).join("")
-    : `<li><span class="d muted">لسه مسجلتش حضور. أول جمعة جاية الساعة ٧!</span></li>`;
+    : `<li><span class="d muted">لسه مسجلتش حضور. أول اجتماع جاي يوم ${DAYS[SCH.day]} الساعة ${fmtMins(SCH.start)}!</span></li>`;
 }
 setInterval(() => { if (!$("v-home").hidden && !$("app").hidden) renderAttCard(); }, 1000);
 
@@ -763,3 +778,34 @@ $("msg-form").addEventListener("submit", async (e) => {
   btn.disabled = false; btn.textContent = "إرسال للكل";
   setTimeout(() => { prog.hidden = true; bar.style.width = "0"; }, 800);
 });
+
+/* ================= مواعيد الاجتماع (لقائد الاجتماع) ================= */
+const toMins = (v) => { const [h, m] = (v || "").split(":").map(Number); return Number.isInteger(h) && Number.isInteger(m) ? h * 60 + m : NaN; };
+const toTime = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+function fillScheduleForm() {
+  if (!$("sch-day") || document.activeElement?.closest?.("#sch-form")) return;
+  $("sch-day").value = String(SCH.day);
+  $("sch-start").value = toTime(SCH.start);
+  $("sch-green").value = toTime(SCH.greenEnd);
+  $("sch-yellow").value = toTime(SCH.yellowEnd);
+  $("sch-end").value = toTime(SCH.end);
+}
+$("sch-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const d = {
+    day: parseInt($("sch-day").value, 10),
+    start: toMins($("sch-start").value),
+    greenEnd: toMins($("sch-green").value),
+    yellowEnd: toMins($("sch-yellow").value),
+    end: toMins($("sch-end").value)
+  };
+  if (Object.values(d).some((v) => !Number.isInteger(v))) return toast("اختار كل المواعيد.");
+  if (!(d.start < d.greenEnd && d.greenEnd <= d.yellowEnd && d.yellowEnd <= d.end)) {
+    return toast("الترتيب لازم يبقى: البداية ← الأخضر ← الأصفر ← النهاية.");
+  }
+  try {
+    await setDoc(doc(db, "config", "app"), { ...d, utcOffset: cairoNow().offset }, { merge: true });
+    toast("اتحفظت المواعيد ✓ وهتطبق عند كل الشباب");
+  } catch (_) { toast("مقدرناش نحفظ. اتأكد إن قواعد الأمان متحدثة والإنترنت شغال."); }
+});
+renderScheduleTexts();

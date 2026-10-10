@@ -11,30 +11,41 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
 
-    // توقيت القاهرة = توقيت السيرفر + فرق الساعات (المدير بيحدثه تلقائي من التطبيق)
-    function offsetHours() {
+    // مواعيد الاجتماع وتوقيت القاهرة محفوظين في config/app (قائد الاجتماع بيغيرهم من التطبيق)
+    function cfg() {
       return exists(/databases/$(database)/documents/config/app)
-        ? get(/databases/$(database)/documents/config/app).data.utcOffset
-        : 3;
+        ? get(/databases/$(database)/documents/config/app).data
+        : {};
     }
-    function local() { return request.time + duration.value(offsetHours(), 'h'); }
+    function local() { return request.time + duration.value(cfg().get('utcOffset', 3), 'h'); }
     function mins() { return local().hours() * 60 + local().minutes(); }
     function dayKey() {
       return string(local().year()) + '-' + string(local().month()) + '-' + string(local().day());
     }
-    // الجمعة = 5 (الاتنين = 1 ... الحد = 7)
-    function meetingOpen() { return local().dayOfWeek() == 5 && mins() >= 1140 && mins() < 1260; }
+    // ترقيم الأيام: الاتنين = 1 ... الجمعة = 5 ... الحد = 7
+    function meetingOpen() {
+      return local().dayOfWeek() == cfg().get('day', 5)
+        && mins() >= cfg().get('start', 1140) && mins() < cfg().get('end', 1260);
+    }
     function validChoice(d) {
-      return (d.color == 'green'  && d.points == 10 && mins() < 1145)   // لحد ٧:٠٥
-          || (d.color == 'yellow' && d.points == 5  && mins() < 1180)   // لحد ٧:٤٠
-          || (d.color == 'red'    && d.points == 0  && mins() < 1260);  // لحد ٩:٠٠
+      return (d.color == 'green'  && d.points == 10 && mins() < cfg().get('greenEnd', 1145))
+          || (d.color == 'yellow' && d.points == 5  && mins() < cfg().get('yellowEnd', 1180))
+          || (d.color == 'red'    && d.points == 0  && mins() < cfg().get('end', 1260));
+    }
+    function validConfig(c) {
+      return c.get('utcOffset', 3) is int && c.get('utcOffset', 3) >= 2 && c.get('utcOffset', 3) <= 3
+        && c.get('day', 5) is int && c.get('day', 5) >= 1 && c.get('day', 5) <= 7
+        && c.get('start', 1140) is int && c.get('end', 1260) is int
+        && c.get('greenEnd', 1145) is int && c.get('yellowEnd', 1180) is int
+        && c.get('start', 1140) >= 0 && c.get('end', 1260) <= 1440
+        && c.get('start', 1140) < c.get('greenEnd', 1145)
+        && c.get('greenEnd', 1145) <= c.get('yellowEnd', 1180)
+        && c.get('yellowEnd', 1180) <= c.get('end', 1260);
     }
 
     match /config/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin()
-        && request.resource.data.utcOffset is int
-        && request.resource.data.utcOffset >= 2 && request.resource.data.utcOffset <= 3;
+      allow write: if isAdmin() && validConfig(request.resource.data);
     }
 
     match /admins/{uid} {

@@ -91,8 +91,8 @@
       <h2 class="h2 first">مواعيد الاجتماع والأنشطة</h2>
       <div class="card fixed-meeting">
         <p class="eyebrow">الاجتماع الأسبوعي</p>
-        <p class="big">كل جمعة · ٧ لـ ٩ مساءً</p>
-        <p class="muted">التسجيل بيفتح الساعة ٧ بالظبط</p>
+        <p class="big" id="meet-when">كل جمعة · من ٧:٠٠ م لـ ٩:٠٠ م</p>
+        <p class="muted" id="meet-note"></p>
       </div>
       <form class="admin-only card form" id="event-form" hidden>
         <p class="eyebrow">إضافة ميعاد أو نشاط</p>
@@ -152,10 +152,33 @@
         <button data-seg="members" class="on" type="button">الأسماء والنقاط</button>
         <button data-seg="today" type="button">حضور النهارده</button>
         <button data-seg="review" type="button">مراجعة <span id="review-count"></span></button>
+        <button data-seg="schedule" type="button">المواعيد</button>
       </div>
       <div class="seg-pane" id="seg-members"></div>
       <div class="seg-pane" id="seg-today" hidden></div>
       <div class="seg-pane" id="seg-review" hidden></div>
+      <div class="seg-pane" id="seg-schedule" hidden>
+        <form class="card form" id="sch-form">
+          <p class="eyebrow">ميعاد الاجتماع وتوقيتات النقاط</p>
+          <label>يوم الاجتماع
+            <select id="sch-day">
+              <option value="6">السبت</option><option value="7">الحد</option><option value="1">الاتنين</option>
+              <option value="2">التلات</option><option value="3">الأربع</option><option value="4">الخميس</option>
+              <option value="5">الجمعة</option>
+            </select>
+          </label>
+          <div class="row2">
+            <label>بداية الاجتماع (التسجيل يفتح)<input type="time" id="sch-start" required></label>
+            <label>نهاية الاجتماع (التسجيل يقفل)<input type="time" id="sch-end" required></label>
+          </div>
+          <div class="row2">
+            <label><span><span class="dot green" style="display:inline-block;width:10px;height:10px;border-radius:50%"></span> الأخضر (١٠) يقفل الساعة</span><input type="time" id="sch-green" required></label>
+            <label><span><span class="dot yellow" style="display:inline-block;width:10px;height:10px;border-radius:50%"></span> الأصفر (٥) يقفل الساعة</span><input type="time" id="sch-yellow" required></label>
+          </div>
+          <p class="muted" style="margin:0;font-size:13px">الأحمر (صفر) بيفضل مفتوح لحد نهاية الاجتماع.</p>
+          <button class="btn primary" type="submit">حفظ المواعيد</button>
+        </form>
+      </div>
     </div>
   </main>
 
