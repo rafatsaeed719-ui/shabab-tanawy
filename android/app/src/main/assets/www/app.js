@@ -19,11 +19,55 @@ const LEVELS = {
   yellow: { name: "أصفر", pts: 5,  until: SCH.yellowEnd },
   red:    { name: "أحمر", pts: 0,  until: SCH.end }
 };
+// مكان الاجتماع: لو مفعّل، الشاب لازم يكون جوه دايرة نصف قطرها radius متر عشان يسجل
+const GEO = { on: false, lat: null, lng: null, radius: 100 };
 function applySchedule(d = {}) {
   for (const k of Object.keys(SCH)) if (Number.isInteger(d[k])) SCH[k] = d[k];
+  GEO.on = d.geoOn === true && typeof d.lat === "number" && typeof d.lng === "number";
+  GEO.lat = typeof d.lat === "number" ? d.lat : null;
+  GEO.lng = typeof d.lng === "number" ? d.lng : null;
+  GEO.radius = Number.isInteger(d.radius) ? d.radius : 100;
   START = SCH.start; END = SCH.end;
   LEVELS.green.until = SCH.greenEnd; LEVELS.yellow.until = SCH.yellowEnd; LEVELS.red.until = SCH.end;
-  renderScheduleTexts();
+  
+function renderGeoAdmin() {
+  const st = $("geo-status");
+  if (!st) return;
+  st.textContent = GEO.lat == null
+    ? "لسه مفيش مكان متثبت."
+    : GEO.on
+      ? `مفعّل ✓ · الشباب لازم يكونوا في حدود ${ar(GEO.radius)} متر من المكان المتثبت.`
+      : "المكان متثبت بس الشرط متوقف · أي حد يقدر يسجل من أي مكان.";
+  if (document.activeElement?.id !== "geo-radius") $("geo-radius").value = GEO.radius;
+  $("geo-on").checked = GEO.on;
+  $("geo-on").disabled = GEO.lat == null;
+  $("geo-map").hidden = GEO.lat == null;
+  if (GEO.lat != null) $("geo-map").href = `https://maps.google.com/?q=${GEO.lat},${GEO.lng}`;
+}
+async function saveGeo(patch, okMsg) {
+  try {
+    await setDoc(doc(db, "config", "app"), { ...patch, utcOffset: cairoNow().offset }, { merge: true });
+    toast(okMsg);
+  } catch (_) { toast("مقدرناش نحفظ. اتأكد إن قواعد الأمان متحدثة والإنترنت شغال."); }
+}
+$("geo-set").onclick = async () => {
+  const btn = $("geo-set");
+  btn.disabled = true; btn.textContent = "بنحدد مكانك…";
+  try {
+    const pos = await getPosition();
+    const { latitude, longitude, accuracy } = pos.coords;
+    const radius = Math.min(1000, Math.max(30, parseInt($("geo-radius").value, 10) || 100));
+    await saveGeo({ lat: latitude, lng: longitude, cosLat: Math.cos((latitude * Math.PI) / 180), radius, geoOn: true },
+      `اتثبت مكان الاجتماع ✓ (دقة الموبايل حوالي ${ar(Math.round(accuracy))} متر)`);
+  } catch (err) { geoSheet(geoError(err)); }
+  btn.disabled = false; btn.textContent = "📍 ثبّت مكان الاجتماع من مكاني دلوقتي";
+};
+$("geo-save").onclick = () => {
+  const radius = parseInt($("geo-radius").value, 10);
+  if (!(radius >= 30 && radius <= 1000)) return toast("المسافة لازم تبقى بين ٣٠ و ١٠٠٠ متر.");
+  saveGeo({ radius, geoOn: $("geo-on").checked && GEO.lat != null }, "اتحفظ ✓");
+};
+renderScheduleTexts();
 }
 function fmtMins(m) {
   const h = Math.floor(m / 60), mi = m % 60, h12 = ((h + 11) % 12) + 1;
@@ -34,6 +78,26 @@ function renderScheduleTexts() {
   $("meet-note").textContent = `أخضر لحد ${fmtMins(SCH.greenEnd)} · أصفر لحد ${fmtMins(SCH.yellowEnd)} · أحمر لحد ${fmtMins(SCH.end)}`;
   if (S.user) { renderAttCard(); renderHome(); }
   fillScheduleForm();
+  renderGeoAdmin();
+}
+
+/* ================= الموقع ================= */
+function distanceM(lat1, lng1, lat2, lng2) {
+  // نفس الحساب اللي في قواعد الأمان (تقريب دقيق للمسافات الصغيرة)
+  const dy = (lat1 - lat2) * 111320;
+  const dx = (lng1 - lng2) * 111320 * Math.cos((lat2 * Math.PI) / 180);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject({ code: 99 });
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
+  });
+}
+function geoError(err) {
+  if (err?.code === 1) return "لازم تسمح للتطبيق يعرف مكانك. افتح إعدادات الموبايل ← التطبيقات ← شباب ثانوي ريدة ← الأذونات ← الموقع ← سماح.";
+  if (err?.code === 3) return "مقدرناش نحدد مكانك. افتح الـ GPS (الموقع) من فوق في الموبايل وجرب تاني.";
+  return "الـ GPS (الموقع) مقفول. افتحه من الإعدادات السريعة فوق وجرب تاني.";
 }
 
 /* ================= Firebase ================= */
@@ -322,6 +386,7 @@ function renderAttCard() {
   c.innerHTML = `
     <p class="eyebrow">${esc(dayLabel(now.dayKey))} · التسجيل مفتوح</p>
     <p class="big">سجّل حضورك</p>
+    ${GEO.on ? `<p class="muted" style="margin:2px 0 0;font-size:13px">📍 لازم تكون في مكان الاجتماع (في حدود ${ar(GEO.radius)} متر)</p>` : ""}
     <div class="choices">${items}</div>`;
   c.querySelectorAll(".choice:not(:disabled)").forEach((b) => (b.onclick = () => confirmAttend(b.dataset.c)));
 }
@@ -331,22 +396,42 @@ function confirmAttend(color) {
   sheet(`
     <h3>تأكيد الحضور</h3>
     <p style="margin:0">هتسجّل حضورك <b>${L.name}</b> وتاخد <b>${ar(L.pts)}</b> نقط. مينفعش تغيّره بعد كده.</p>
+    ${GEO.on ? `<p class="muted" style="margin:0">هنتأكد الأول إنك في مكان الاجتماع، اتأكد إن الـ GPS مفتوح.</p>` : ""}
     <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn primary" id="go" type="button">تأكيد</button></div>`,
   (el) => {
     el.querySelector("#go").onclick = async (e) => {
       e.target.disabled = true;
+      const data = { uid: S.user.uid, color, points: L.pts };
+      if (GEO.on) {
+        e.target.textContent = "بنحدد مكانك…";
+        let pos;
+        try { pos = await getPosition(); }
+        catch (err) { closeSheet(); return geoSheet(geoError(err)); }
+        const { latitude, longitude, accuracy } = pos.coords;
+        const dist = distanceM(latitude, longitude, GEO.lat, GEO.lng);
+        if (dist > GEO.radius) {
+          closeSheet();
+          return geoSheet(`انت على بعد حوالي ${ar(Math.round(dist))} متر من مكان الاجتماع. لازم تكون في حدود ${ar(GEO.radius)} متر عشان تسجل حضورك.`
+            + (accuracy > 60 ? " لو انت في الكنيسة فعلاً، اخرج جنب شباك أو باب عشان الـ GPS يلقط أحسن وجرب تاني." : ""));
+        }
+        Object.assign(data, { lat: latitude, lng: longitude, acc: Math.round(accuracy) });
+      }
       const now = cairoNow();
+      data.day = now.dayKey; data.at = serverTimestamp();
       try {
-        await setDoc(doc(db, "attendance", `${now.dayKey}_${S.user.uid}`), {
-          uid: S.user.uid, day: now.dayKey, color, points: L.pts, at: serverTimestamp()
-        });
+        await setDoc(doc(db, "attendance", `${now.dayKey}_${S.user.uid}`), data);
         closeSheet(); toast(`تم تسجيل حضورك ${L.name} ✓`);
       } catch (err) {
         closeSheet();
-        toast(err?.code === "permission-denied" ? "الاختيار ده قفل أو اتسجلت قبل كده." : "مفيش اتصال، جرب تاني.");
+        toast(err?.code === "permission-denied" ? "مقدرناش نسجل: يا الاختيار ده قفل، يا اتسجلت قبل كده، يا انت بعيد عن مكان الاجتماع." : "مفيش اتصال، جرب تاني.");
       }
     };
   });
+}
+
+function geoSheet(msg) {
+  sheet(`<h3>مش في مكان الاجتماع</h3><p style="margin:0">${esc(msg)}</p>
+    <div class="actions"><button class="btn primary" data-close type="button">تمام</button></div>`);
 }
 
 function renderHome() {
@@ -612,32 +697,72 @@ function renderAdmin() {
       <span><i class="dot green"></i>${ar(c.green)}</span><span><i class="dot yellow"></i>${ar(c.yellow)}</span>
       <span><i class="dot red"></i>${ar(c.red)}</span><span>الإجمالي ${ar(list.length)}</span>
     </div>
-    <ul class="rows">${list.map((a) => `<li><span class="dot ${a.color}"></span><span class="n">${esc(nameOf(a.uid))}</span><span class="muted">${esc(timeLabel(a.at))}</span></li>`).join("")}</ul>`
+    <ul class="rows">${list.map((a) => `<li><span class="dot ${a.color}"></span><span class="n">${esc(nameOf(a.uid))}${a.manual ? '<small>اتسجل يدوي</small>' : ""}</span><span class="muted">${esc(timeLabel(a.at))}</span><button class="btn small danger" data-delatt="${a.id}" type="button">حذف</button></li>`).join("")}</ul>`
     : `<p class="empty">لسه محدش سجل حضور.</p>`;
+
+  $("seg-today").querySelectorAll("[data-delatt]").forEach((b) => (b.onclick = () => deleteAttendance(b.dataset.delatt)));
 
   // الأعضاء مرتبين بالنقاط
   const t = totals();
   const members = [...S.allUsers].sort((a, b) => (t[b.id].att + t[b.id].extra) - (t[a.id].att + t[a.id].extra));
-  $("seg-members").innerHTML = `<p class="eyebrow">${ar(members.length)} عضو · مرتبين بالنقاط · اضغط على أي اسم عشان تضيف أو تخصم نقاط</p><ul class="rows">${members.map((u, i) => {
+  $("seg-members").innerHTML = `<button class="btn primary" id="add-offline" type="button" style="width:100%;margin-bottom:12px">+ إضافة عضو بدون موبايل</button>
+    <p class="eyebrow">${ar(members.length)} عضو · مرتبين بالنقاط · اضغط على أي اسم عشان تضيف أو تخصم نقاط أو تسجل حضوره</p><ul class="rows">${members.map((u, i) => {
     const x = t[u.id];
     return `<li data-u="${u.id}" style="cursor:pointer">
       <span class="muted" style="width:22px">${ar(i + 1)}</span>
-      <span class="n">${esc(u.name)}${S.admins.has(u.id) ? ' <span class="tag">خادم</span>' : ""}<small>${ar(x.g)} أخضر · ${ar(x.y)} أصفر · ${ar(x.r)} أحمر · ${signed(x.extra)} إضافي</small></span>
+      <span class="n">${esc(u.name)}${S.admins.has(u.id) ? ' <span class="tag">خادم</span>' : ""}${u.offline ? ' <span class="tag">بدون موبايل</span>' : ""}<small>${ar(x.g)} أخضر · ${ar(x.y)} أصفر · ${ar(x.r)} أحمر · ${signed(x.extra)} إضافي</small></span>
       <span class="score">${ar(x.att + x.extra)}</span></li>`;
   }).join("")}</ul>`;
   $("seg-members").querySelectorAll("[data-u]").forEach((li) => (li.onclick = () => memberSheet(li.dataset.u)));
+  $("add-offline").onclick = addOfflineSheet;
+}
+
+function deleteAttendance(id, after) {
+  const a = S.allAtt.find((x) => x.id === id);
+  if (!a) return;
+  const L = LEVELS[a.color] || LEVELS.red;
+  sheet(`<h3>حذف الحضور؟</h3>
+    <p style="margin:0">حضور <b>${esc(nameOf(a.uid))}</b> يوم ${esc(dayLabel(a.day))} (${L.name} · ${ar(a.points)} نقطة) هيتمسح ونقاطه هتتشال.</p>
+    <p class="muted" style="margin:0">لو الاجتماع لسه مفتوح، يقدر يسجل تاني.</p>
+    <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn danger" id="go" type="button">حذف</button></div>`,
+    (el) => (el.querySelector("#go").onclick = async () => {
+      try { await deleteDoc(doc(db, "attendance", id)); toast("اتحذف الحضور."); }
+      catch (_) { toast("مقدرناش نحذف. اتأكد من الإنترنت."); }
+      closeSheet(); if (after) setTimeout(after, 300);
+    }));
+}
+
+function addOfflineSheet() {
+  sheet(`<h3>عضو بدون موبايل</h3>
+    <p class="muted" style="margin:0">هيظهر في قائمة الأسماء، وانت اللي بتسجله حضوره ونقاطه.</p>
+    <label class="form" style="display:grid;gap:6px;font-weight:600">الاسم بالكامل<input type="text" id="off-name" maxlength="80"></label>
+    <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn primary" id="go" type="button">إضافة</button></div>`,
+    (el) => {
+      el.querySelector("#off-name").focus();
+      el.querySelector("#go").onclick = async () => {
+        const name = el.querySelector("#off-name").value.trim();
+        if (name.length < 3) return toast("اكتب الاسم بالكامل.");
+        const id = "m_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        try {
+          await setDoc(doc(db, "users", id), { name, offline: true, createdAt: serverTimestamp() });
+          closeSheet(); toast(`اتضاف ${name} ✓`);
+        } catch (_) { toast("مقدرناش نضيفه. اتأكد إن قواعد الأمان متحدثة."); }
+      };
+    });
 }
 
 function memberSheet(uid) {
   const u = S.allUsers.find((x) => x.id === uid);
   const isAdm = S.admins.has(uid);
   const now = cairoNow();
-  const has = S.allAtt.some((a) => a.uid === uid && a.day === now.dayKey);
   const tt = totals()[uid];
+  const att = S.allAtt.filter((a) => a.uid === uid).sort((a, b) => keyNum(b.day) - keyNum(a.day)).slice(0, 6);
+  const today = `${now.y}-${String(now.mo).padStart(2, "0")}-${String(now.da).padStart(2, "0")}`;
   const adj = S.allAdj.filter((a) => a.uid === uid).sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0)).slice(0, 8);
   sheet(`
     <h3>${esc(u.name)}</h3>
-    <p class="muted" style="margin:0" dir="ltr">${esc(u.email || "")}</p>
+    <p class="muted" style="margin:0" dir="ltr">${u.offline ? "" : esc(u.email || "")}</p>
+    ${u.offline ? `<p class="muted" style="margin:0">عضو بدون موبايل</p>` : ""}
     <p style="margin:0"><b style="font-size:22px;font-family:var(--display)">${ar(tt.att + tt.extra)}</b> نقطة</p>
     <p class="eyebrow" style="margin-top:6px">إضافة أو خصم نقاط</p>
     <div class="row2">
@@ -649,14 +774,16 @@ function memberSheet(uid) {
       <button class="btn danger" id="adj-sub" type="button">خصم −</button>
     </div>
     ${adj.length ? `<ul class="rows">${adj.map((a) => `<li><span class="n">${signed(a.points)}<small>${esc(a.reason || "بدون سبب")}</small></span><button class="btn small ghost" data-undo="${a.id}" type="button">إلغاء</button></li>`).join("")}</ul>` : ""}
-    ${has ? `<p class="muted" style="margin:0">حضوره النهارده متسجل.</p>` : `
-      <p class="eyebrow" style="margin-top:6px">تسجيل حضور النهارده يدوي</p>
-      <div class="actions">
-        <button class="btn small" style="background:var(--green-soft);color:var(--green)" data-m="green" type="button">أخضر ١٠</button>
-        <button class="btn small" style="background:var(--yellow-soft);color:var(--yellow)" data-m="yellow" type="button">أصفر ٥</button>
-        <button class="btn small" style="background:var(--red-soft);color:var(--red)" data-m="red" type="button">أحمر ٠</button>
-      </div>`}
-    ${uid !== S.user.uid ? `<button class="btn ghost" id="adm" type="button">${isAdm ? "شيل صلاحية الخادم" : "خليه خادم (يقدر يدير التطبيق)"}</button>` : ""}
+    <p class="eyebrow" style="margin-top:6px">تسجيل حضور يدوي</p>
+    <label style="display:grid;gap:6px;font-weight:600;font-size:14px">يوم الاجتماع<input type="date" id="m-day" value="${today}" max="${today}"></label>
+    <div class="actions">
+      <button class="btn small" style="background:var(--green-soft);color:var(--green)" data-m="green" type="button">أخضر ١٠</button>
+      <button class="btn small" style="background:var(--yellow-soft);color:var(--yellow)" data-m="yellow" type="button">أصفر ٥</button>
+      <button class="btn small" style="background:var(--red-soft);color:var(--red)" data-m="red" type="button">أحمر ٠</button>
+    </div>
+    ${att.length ? `<p class="eyebrow" style="margin-top:6px">آخر حضور</p><ul class="rows">${att.map((a) => `<li><span class="dot ${a.color}"></span><span class="n">${esc(dayLabel(a.day))}${a.manual ? "<small>يدوي</small>" : ""}</span><span class="p">${signed(a.points)}</span><button class="btn small danger" data-delatt="${a.id}" type="button">حذف</button></li>`).join("")}</ul>` : ""}
+    ${uid !== S.user.uid && !u.offline ? `<button class="btn ghost" id="adm" type="button">${isAdm ? "شيل صلاحية الخادم" : "خليه خادم (يقدر يدير التطبيق)"}</button>` : ""}
+    ${u.offline ? `<button class="btn danger" id="del-off" type="button">حذف العضو</button>` : ""}
     <button class="btn ghost" data-close type="button">قفل</button>`, (el) => {
     const adjust = async (sign) => {
       const n = parseInt(el.querySelector("#adj-n").value, 10);
@@ -676,9 +803,30 @@ function memberSheet(uid) {
     }));
     el.querySelectorAll("[data-m]").forEach((b) => (b.onclick = async () => {
       const L = LEVELS[b.dataset.m];
-      await setDoc(doc(db, "attendance", `${now.dayKey}_${uid}`), { uid, day: now.dayKey, color: b.dataset.m, points: L.pts, at: serverTimestamp(), manual: true });
-      closeSheet(); toast("اتسجل الحضور.");
+      const v = el.querySelector("#m-day").value;
+      if (!v) return toast("اختار اليوم.");
+      const [y, m, d] = v.split("-").map(Number);
+      const day = `${y}-${m}-${d}`;
+      const old = S.allAtt.find((a) => a.uid === uid && a.day === day);
+      try {
+        await setDoc(doc(db, "attendance", old ? old.id : `${day}_${uid}`), { uid, day, color: b.dataset.m, points: L.pts, at: serverTimestamp(), manual: true });
+        toast(old ? `اتغير حضور ${dayLabel(day)} لـ ${L.name}` : `اتسجل حضور ${dayLabel(day)} ${L.name} ✓`);
+        setTimeout(() => memberSheet(uid), 300);
+      } catch (_) { toast("مقدرناش نسجل. اتأكد من الإنترنت."); }
     }));
+    el.querySelectorAll("[data-delatt]").forEach((b) => (b.onclick = () => deleteAttendance(b.dataset.delatt, () => memberSheet(uid))));
+    const delOff = el.querySelector("#del-off");
+    if (delOff) delOff.onclick = () => sheet(`<h3>حذف ${esc(u.name)}؟</h3>
+      <p style="margin:0">هيتمسح من القائمة هو وكل حضوره ونقاطه.</p>
+      <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn danger" id="go" type="button">حذف</button></div>`,
+      (e2) => (e2.querySelector("#go").onclick = async () => {
+        try {
+          for (const a of [...S.allAtt, ...S.allAdj].filter((x) => x.uid === uid)) await deleteDoc(doc(db, "attendance", a.id));
+          await deleteDoc(doc(db, "users", uid));
+          toast("اتحذف العضو.");
+        } catch (_) { toast("مقدرناش نحذف. اتأكد من الإنترنت."); }
+        closeSheet();
+      }));
     const adm = el.querySelector("#adm");
     if (adm) adm.onclick = async () => {
       if (isAdm) await deleteDoc(doc(db, "admins", uid)); else await setDoc(doc(db, "admins", uid), { email: u.email || "", at: serverTimestamp() });

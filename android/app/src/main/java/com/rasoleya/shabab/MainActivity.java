@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
+import android.webkit.GeolocationPermissions;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -24,6 +25,9 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
+    private static final int LOCATION_REQ = 9;
+    private GeolocationPermissions.Callback geoCallback;
+    private String geoOrigin;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,6 +41,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
+        s.setGeolocationEnabled(true);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
         s.setMediaPlaybackRequiresUserGesture(true);
@@ -64,6 +69,18 @@ public class MainActivity extends Activity {
 
         // اختيار الصور من المعرض (للمدير)
         web.setWebChromeClient(new WebChromeClient() {
+            // الموقع: بنطلب إذن الموبايل وبعدين نسمح للصفحة تعرف المكان
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    callback.invoke(origin, true, false);
+                } else {
+                    geoCallback = callback;
+                    geoOrigin = origin;
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_REQ);
+                }
+            }
+
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
@@ -100,6 +117,16 @@ public class MainActivity extends Activity {
 
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
         else web.loadUrl(startUrl(getIntent()));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == LOCATION_REQ && geoCallback != null) {
+            boolean ok = results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            geoCallback.invoke(geoOrigin, ok, false);
+            geoCallback = null;
+        }
     }
 
     private String startUrl(Intent i) {

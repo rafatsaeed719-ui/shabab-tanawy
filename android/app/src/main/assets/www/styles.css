@@ -325,3 +325,8 @@ input[type=date] { width: 100%; min-width: 0; background: var(--surface); border
 .actions-row .btn { flex: 1; }
 .ev .admin-btns { display: flex; gap: 8px; margin-top: 8px; }
 .ev.editing { outline: 2px solid var(--accent); }
+
+.form label.check { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+#geo-map { justify-self: start; }
+.rows .p { font-weight: 700; }

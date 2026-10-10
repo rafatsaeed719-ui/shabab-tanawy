@@ -182,6 +182,16 @@
           <p class="muted" style="margin:0;font-size:13px">الأحمر (صفر) بيفضل مفتوح لحد نهاية الاجتماع.</p>
           <button class="btn primary" type="submit">حفظ المواعيد</button>
         </form>
+        <div class="card form" id="geo-card">
+          <p class="eyebrow">مكان الاجتماع</p>
+          <p style="margin:0" id="geo-status"></p>
+          <p class="muted" style="margin:0;font-size:13px">اقف في الكنيسة واضغط الزرار. بعد كده محدش هيقدر يسجل حضوره وهو بعيد عن المكان ده.</p>
+          <button class="btn primary" id="geo-set" type="button">📍 ثبّت مكان الاجتماع من مكاني دلوقتي</button>
+          <a class="link" id="geo-map" href="#" target="_blank" rel="noopener" hidden>شوف المكان المتثبت على الخريطة</a>
+          <label>أقصى مسافة مسموحة (بالمتر)<input type="number" id="geo-radius" min="30" max="1000" value="100"></label>
+          <label class="check"><input type="checkbox" id="geo-on"> لازم الشباب يكونوا في المكان عشان يسجلوا</label>
+          <button class="btn ghost" id="geo-save" type="button">حفظ</button>
+        </div>
       </div>
     </div>
   </main>

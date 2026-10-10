@@ -32,6 +32,14 @@ service cloud.firestore {
           || (d.color == 'yellow' && d.points == 5  && mins() < cfg().get('yellowEnd', 1180))
           || (d.color == 'red'    && d.points == 0  && mins() < cfg().get('end', 1260));
     }
+    // مكان الاجتماع: لو مفعّل، الإحداثيات اللي في التسجيل لازم تكون جوه الدايرة
+    function nearMeeting(d) {
+      let c = cfg();
+      return c.get('geoOn', false) != true || (
+        d.lat is number && d.lng is number &&
+        math.pow((d.lat - c.lat) * 111320, 2) + math.pow((d.lng - c.lng) * 111320 * c.cosLat, 2)
+          <= math.pow(c.radius, 2));
+    }
     function validConfig(c) {
       return c.get('utcOffset', 3) is int && c.get('utcOffset', 3) >= 2 && c.get('utcOffset', 3) <= 3
         && c.get('day', 5) is int && c.get('day', 5) >= 1 && c.get('day', 5) <= 7
@@ -40,7 +48,11 @@ service cloud.firestore {
         && c.get('start', 1140) >= 0 && c.get('end', 1260) <= 1440
         && c.get('start', 1140) < c.get('greenEnd', 1145)
         && c.get('greenEnd', 1145) <= c.get('yellowEnd', 1180)
-        && c.get('yellowEnd', 1180) <= c.get('end', 1260);
+        && c.get('yellowEnd', 1180) <= c.get('end', 1260)
+        && (c.get('geoOn', false) != true || (
+              c.lat is number && c.lng is number && c.cosLat is number
+              && c.cosLat > 0 && c.cosLat <= 1
+              && c.radius is int && c.radius >= 30 && c.radius <= 1000));
     }
 
     match /config/{id} {
@@ -57,7 +69,8 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow create, update: if signedIn() && request.auth.uid == uid
         && request.resource.data.name is string && request.resource.data.name.size() <= 80;
-      allow delete: if isAdmin();
+      // القائد يضيف ويعدل ويحذف أعضاء (زي اللي معندهمش موبايل)
+      allow create, update, delete: if isAdmin();
     }
 
     match /attendance/{id} {
@@ -69,8 +82,9 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.day == dayKey()
         && request.resource.data.at == request.time
-        && request.resource.data.keys().hasOnly(['uid', 'day', 'color', 'points', 'at'])
-        && validChoice(request.resource.data);
+        && request.resource.data.keys().hasOnly(['uid', 'day', 'color', 'points', 'at', 'lat', 'lng', 'acc'])
+        && validChoice(request.resource.data)
+        && nearMeeting(request.resource.data);
       // المدير/الخادم يقدر يسجل يدوي أو يعدل أو يمسح
       allow create, update, delete: if isAdmin();
     }
