@@ -72,7 +72,7 @@ function dayLabel(key) {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
 }
-const signed = (n) => (n < 0 ? "−" + ar(-n) : "+" + ar(n));
+const signed = (n) => `<bdi dir="ltr">${n < 0 ? "−" + ar(-n) : "+" + ar(n)}</bdi>`;
 const keyNum = (k) => { const [y, m, d] = k.split("-").map(Number); return y * 10000 + m * 100 + d; };
 function timeLabel(ts) {
   if (!ts?.toDate) return "";
@@ -230,6 +230,7 @@ function setAdmin(on) {
   if (on === S.isAdmin) return;
   S.isAdmin = on;
   document.querySelectorAll(".admin-only").forEach((el) => (el.hidden = !on));
+  document.querySelector(".total").hidden = on; // القائد مش بيجمع نقاط
   stop(adminUnsubs);
   if (!on) return;
   syncClockOffset();
@@ -292,7 +293,7 @@ function renderAttCard() {
       <div class="done-badge ${rec.color}">
         <span class="dot ${rec.color}" style="width:18px;height:18px;border-radius:50%"></span>
         <div style="flex:1"><strong>${L.name}</strong><br><small>الساعة ${esc(timeLabel(rec.at))}</small></div>
-        <strong>+${ar(rec.points)}</strong>
+        <strong>${signed(rec.points)}</strong>
       </div>`;
     return;
   }
@@ -365,7 +366,7 @@ function renderHome() {
   $("history").innerHTML = hist.length
     ? hist.map((a) => a.kind === "adjust"
       ? `<li><span class="dot white"></span><span class="d">${a.points < 0 ? "خصم" : "نقاط"} من القائد${a.reason ? " · " + esc(a.reason) : ""}</span><span class="p">${signed(a.points)}</span></li>`
-      : `<li><span class="dot ${a.color}"></span><span class="d">${esc(dayLabel(a.day))}</span><span class="p">+${ar(a.points)}</span></li>`).join("")
+      : `<li><span class="dot ${a.color}"></span><span class="d">${esc(dayLabel(a.day))}</span><span class="p">${signed(a.points)}</span></li>`).join("")
     : `<li><span class="d muted">لسه مسجلتش حضور. أول اجتماع جاي يوم ${DAYS[SCH.day]} الساعة ${fmtMins(SCH.start)}!</span></li>`;
 }
 setInterval(() => { if (!$("v-home").hidden && !$("app").hidden) renderAttCard(); }, 1000);
@@ -466,7 +467,7 @@ function renderTasks() {
   $("tasks").innerHTML = visible.map((t) => {
     const s = mine[t.id];
     let foot = "";
-    if (s?.status === "approved") foot = `<div class="state approved">إجابتك اتقبلت · +${ar(s.points)} نقطة</div>`;
+    if (s?.status === "approved") foot = `<div class="state approved">إجابتك اتقبلت · ${signed(s.points)} نقطة</div>`;
     else if (s?.status === "rejected") foot = `<div class="state rejected">إجابتك متقبلتش المرة دي</div>`;
     else if (s) foot = `<div class="state pending">إجابتك وصلت ومستنية المراجعة</div>`;
     else if (t.active === false) foot = `<div class="state rejected">السؤال ده خلص</div>`;
@@ -479,7 +480,7 @@ function renderTasks() {
         <button class="btn small ghost" data-toggle="${t.id}" type="button">${t.active === false ? "إعادة فتح" : "قفل السؤال"}</button>
         <button class="btn small danger" data-deltask="${t.id}" type="button">حذف</button></div>`;
     }
-    return `<li class="task"><div class="task-head"><p class="task-q">${esc(t.body)}</p><span class="wpill">+${ar(t.points)}</span></div>${S.isAdmin ? admin : foot}</li>`;
+    return `<li class="task"><div class="task-head"><p class="task-q">${esc(t.body)}</p><span class="wpill">${signed(t.points)}</span></div>${S.isAdmin ? admin : foot}</li>`;
   }).join("");
   $("tasks-empty").hidden = visible.length > 0;
   $("tasks").querySelectorAll("form[data-t]").forEach((f) => f.addEventListener("submit", async (e) => {
