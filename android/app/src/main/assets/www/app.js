@@ -30,7 +30,7 @@ function fmtMins(m) {
   return `${ar(h12)}:${ar(mi).padStart(2, "٠")} ${h < 12 ? "ص" : "م"}`;
 }
 function renderScheduleTexts() {
-  $("meet-when").textContent = `كل ${DAYS[SCH.day]} · من ${fmtMins(SCH.start)} لـ ${fmtMins(SCH.end)}`;
+  $("meet-when").textContent = `كل أسبوع يوم ${DAYS[SCH.day]} · من ${fmtMins(SCH.start)} لـ ${fmtMins(SCH.end)}`;
   $("meet-note").textContent = `أخضر لحد ${fmtMins(SCH.greenEnd)} · أصفر لحد ${fmtMins(SCH.yellowEnd)} · أحمر لحد ${fmtMins(SCH.end)}`;
   if (S.user) { renderAttCard(); renderHome(); }
   fillScheduleForm();
@@ -437,27 +437,73 @@ function renderEvents() {
     const day = d.toLocaleDateString("ar-EG", { day: "numeric" });
     const mon = d.toLocaleDateString("ar-EG", { month: "short" });
     const full = d.toLocaleDateString("ar-EG", { weekday: "long" }) + " · " + d.toLocaleTimeString("ar-EG", { hour: "numeric", minute: "2-digit" });
-    return `<li class="ev ${isPast ? "past" : ""}">
+    return `<li class="ev ${isPast ? "past" : ""} ${editingEvent === e.id ? "editing" : ""}">
       <div class="date"><b>${esc(day)}</b><small>${esc(mon)}</small></div>
       <div class="body">
         <h3>${esc(e.title)}<span class="tag">${KIND[e.kind] || "نشاط"}</span></h3>
         <p>${esc(full)}${e.place ? " · " + esc(e.place) : ""}</p>
         ${e.details ? `<p class="details">${esc(e.details)}</p>` : ""}
-        ${S.isAdmin ? `<button class="btn small danger" data-del="${e.id}" type="button" style="margin-top:8px">حذف</button>` : ""}
+        ${S.isAdmin ? `<div class="admin-btns"><button class="btn small ghost" data-edit="${e.id}" type="button">تعديل</button><button class="btn small danger" data-del="${e.id}" type="button">حذف</button></div>` : ""}
       </div></li>`;
   };
   $("events").innerHTML = up.map((e) => row(e, false)).join("") + past.map((e) => row(e, true)).join("");
   $("events-empty").hidden = up.length + past.length > 0;
-  $("events").querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => { await deleteDoc(doc(db, "events", b.dataset.del)); toast("اتحذف."); }));
+  $("events").querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => startEditEvent(b.dataset.edit)));
+  $("events").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => sheet(`
+    <h3>حذف الميعاد؟</h3><p style="margin:0">هيتمسح عند كل الشباب.</p>
+    <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn danger" id="go" type="button">حذف</button></div>`,
+    (el) => (el.querySelector("#go").onclick = async () => {
+      await deleteDoc(doc(db, "events", b.dataset.del));
+      if (editingEvent === b.dataset.del) stopEditEvent();
+      closeSheet(); toast("اتحذف الميعاد.");
+    }))));
 }
+
+// تعديل ميعاد موجود: الفورم فوق بيتملي ببياناته، والزرار يبقى "حفظ التعديل"
+let editingEvent = null;
+function startEditEvent(id) {
+  const ev = S.events.find((x) => x.id === id);
+  if (!ev) return;
+  editingEvent = id;
+  const [d, t] = String(ev.when || "").split("T");
+  $("e-title").value = ev.title || "";
+  $("e-kind").value = ev.kind || "activity";
+  $("e-date").value = d || "";
+  $("e-time").value = (t || "").slice(0, 5);
+  $("e-place").value = ev.place || "";
+  $("e-details").value = ev.details || "";
+  $("e-head").textContent = "تعديل الميعاد";
+  $("e-submit").textContent = "حفظ التعديل";
+  $("e-cancel").hidden = false;
+  renderEvents();
+  $("event-form").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function stopEditEvent() {
+  editingEvent = null;
+  $("event-form").reset();
+  $("e-head").textContent = "إضافة ميعاد أو نشاط";
+  $("e-submit").textContent = "إضافة";
+  $("e-cancel").hidden = true;
+  renderEvents();
+}
+$("e-cancel").onclick = stopEditEvent;
 $("event-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const title = $("e-title").value.trim(), when = $("e-when").value;
-  if (!title || !when) return toast("اكتب العنوان والميعاد.");
-  await addDoc(collection(db, "events"), {
-    title, when, kind: $("e-kind").value, place: $("e-place").value.trim(), details: $("e-details").value.trim(), createdAt: serverTimestamp()
-  });
-  e.target.reset(); toast("اتضاف الميعاد.");
+  const title = $("e-title").value.trim(), date = $("e-date").value, time = $("e-time").value;
+  if (!title || !date || !time) return toast("اكتب العنوان واختار اليوم والساعة.");
+  const data = { title, when: `${date}T${time}`, kind: $("e-kind").value, place: $("e-place").value.trim(), details: $("e-details").value.trim() };
+  $("e-submit").disabled = true;
+  try {
+    if (editingEvent) {
+      await updateDoc(doc(db, "events", editingEvent), data);
+      toast("اتعدل الميعاد ✓");
+    } else {
+      await addDoc(collection(db, "events"), { ...data, createdAt: serverTimestamp() });
+      toast("اتضاف الميعاد ✓");
+    }
+    stopEditEvent();
+  } catch (_) { toast("مقدرناش نحفظ. اتأكد من الإنترنت."); }
+  $("e-submit").disabled = false;
 });
 
 /* ================= اكسب نقاط ================= */

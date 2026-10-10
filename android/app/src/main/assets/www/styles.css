@@ -319,3 +319,9 @@ main { padding: 16px 16px calc(96px + env(safe-area-inset-bottom, 0px)); max-wid
 
 input[type=time] { width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; font-weight: 400; }
 .seg button { font-size: 12.5px; }
+
+input[type=date] { width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; font-weight: 400; }
+.actions-row { display: flex; gap: 8px; }
+.actions-row .btn { flex: 1; }
+.ev .admin-btns { display: flex; gap: 8px; margin-top: 8px; }
+.ev.editing { outline: 2px solid var(--accent); }

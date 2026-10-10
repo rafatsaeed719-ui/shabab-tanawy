@@ -95,17 +95,21 @@
         <p class="muted" id="meet-note"></p>
       </div>
       <form class="admin-only card form" id="event-form" hidden>
-        <p class="eyebrow">إضافة ميعاد أو نشاط</p>
+        <p class="eyebrow" id="e-head">إضافة ميعاد أو نشاط</p>
         <label>العنوان<input id="e-title" type="text" required></label>
+        <label>النوع
+          <select id="e-kind"><option value="activity">نشاط</option><option value="meeting">اجتماع</option><option value="trip">رحلة</option></select>
+        </label>
         <div class="row2">
-          <label>النوع
-            <select id="e-kind"><option value="activity">نشاط</option><option value="meeting">اجتماع</option><option value="trip">رحلة</option></select>
-          </label>
-          <label>اليوم والساعة<input id="e-when" type="datetime-local" required></label>
+          <label>اليوم<input id="e-date" type="date" required></label>
+          <label>الساعة<input id="e-time" type="time" required></label>
         </div>
         <label>المكان<input id="e-place" type="text"></label>
         <label>تفاصيل<textarea id="e-details" rows="3"></textarea></label>
-        <button class="btn primary" type="submit">إضافة</button>
+        <div class="actions-row">
+          <button class="btn primary" id="e-submit" type="submit">إضافة</button>
+          <button class="btn ghost" id="e-cancel" type="button" hidden>إلغاء التعديل</button>
+        </div>
       </form>
       <ul class="events" id="events"></ul>
       <p class="empty" id="events-empty" hidden>مفيش مواعيد جاية دلوقتي.</p>
