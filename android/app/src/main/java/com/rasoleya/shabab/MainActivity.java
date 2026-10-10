@@ -1,10 +1,13 @@
 package com.rasoleya.shabab;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -67,10 +70,12 @@ public class MainActivity extends Activity {
                 fileCallback = callback;
                 Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("image/*");
+                String[] types = params.getAcceptTypes();
+                String type = (types != null && types.length > 0 && types[0] != null && !types[0].isEmpty()) ? types[0] : "*/*";
+                i.setType(type);
                 i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
                 try {
-                    startActivityForResult(Intent.createChooser(i, "اختار الصور"), PICK_FILES);
+                    startActivityForResult(Intent.createChooser(i, type.startsWith("video") ? "اختار الفيديو" : "اختار الصورة"), PICK_FILES);
                 } catch (Exception e) {
                     fileCallback = null;
                     return false;
@@ -79,8 +84,34 @@ public class MainActivity extends Activity {
             }
         });
 
+        // جسر صغير: التطبيق يقول للموبايل آخر رسالة اتشافت عشان الإشعار ميتكررش
+        web.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void markSeen(String id) {
+                getSharedPreferences(MessageWorker.PREFS, MODE_PRIVATE).edit().putString(MessageWorker.KEY_SEEN, id).apply();
+            }
+        }, "Android");
+
+        MessageWorker.createChannel(this);
+        MessageWorker.schedule(this);
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5);
+        }
+
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
-        else web.loadUrl(HOME);
+        else web.loadUrl(startUrl(getIntent()));
+    }
+
+    private String startUrl(Intent i) {
+        return i != null && "messages".equals(i.getStringExtra("open")) ? HOME + "#messages" : HOME;
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if ("messages".equals(intent.getStringExtra("open"))) {
+            web.evaluateJavascript("document.querySelector('#tabs button[data-v=\"messages\"]')?.click()", null);
+        }
     }
 
     @Override

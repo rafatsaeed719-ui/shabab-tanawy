@@ -5,7 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, addDoc, collection, query, where,
-  orderBy, limit, onSnapshot, serverTimestamp
+  orderBy, limit, onSnapshot, serverTimestamp, Bytes
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 /* ================= الإعدادات الثابتة =================
@@ -92,7 +92,7 @@ $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet" || e.t
 /* ================= الحالة ================= */
 const S = {
   user: null, isAdmin: false,
-  myAtt: [], myAdj: [], mySubs: [], tasks: [], photos: [], events: [],
+  myAtt: [], myAdj: [], mySubs: [], messages: [], tasks: [], photos: [], events: [],
   allUsers: [], allAtt: [], allAdj: [], allSubs: [], admins: new Set()
 };
 let unsubs = [];
@@ -195,6 +195,15 @@ function startListeners() {
     S.events = s.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderEvents();
   }));
+  let firstMsgs = true;
+  unsubs.push(onSnapshot(query(collection(db, "messages"), orderBy("createdAt", "desc"), limit(30)), (s) => {
+    S.messages = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) }));
+    if (!firstMsgs && !s.metadata.hasPendingWrites && s.docChanges().some((c) => c.type === "added") && $("v-messages").hidden) toast("وصلتك رسالة جديدة من قائد الاجتماع");
+    firstMsgs = false;
+    renderMessages();
+    if (!$("v-messages").hidden) markMessagesRead(); else updateBadge();
+  }));
+  if (location.hash === "#messages") document.querySelector('#tabs button[data-v="messages"]').click();
   // هل المستخدم ده مسؤول؟
   const mainAdmin = (S.user.email || "").toLowerCase() === (window.ADMIN_EMAIL || "").toLowerCase();
   unsubs.push(onSnapshot(doc(db, "admins", uid), (s) => setAdmin(mainAdmin || s.exists()), () => setAdmin(mainAdmin)));
@@ -216,7 +225,7 @@ function setAdmin(on) {
   }));
   adminUnsubs.push(onSnapshot(collection(db, "submissions"), (s) => { S.allSubs = s.docs.map((d) => ({ id: d.id, ...d.data(SNAP) })); renderAdmin(); renderTasks(); }));
   adminUnsubs.push(onSnapshot(collection(db, "admins"), (s) => { S.admins = new Set(s.docs.map((d) => d.id)); renderAdmin(); }));
-  renderTasks(); renderPhotos(); renderEvents();
+  renderTasks(); renderPhotos(); renderEvents(); renderMessages();
 }
 
 // قواعد الأمان بتحسب توقيت القاهرة من فرق الساعات المحفوظ هنا (بيتغير مع التوقيت الصيفي)
@@ -235,6 +244,7 @@ document.querySelectorAll("#tabs button").forEach((b) => {
     document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
     document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== "v-" + b.dataset.v));
     window.scrollTo(0, 0);
+    if (b.dataset.v === "messages") markMessagesRead(); else updateBadge();
   };
 });
 
@@ -620,3 +630,136 @@ $("logout").onclick = () => sheet(`
   <h3>تسجيل الخروج؟</h3>
   <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn danger" id="out" type="button">خروج</button></div>`,
   (el) => (el.querySelector("#out").onclick = () => { closeSheet(); signOut(auth); }));
+
+/* ================= الرسائل =================
+   الفيديو بيتقسم أجزاء (كل جزء أقل من ١ ميجا) جوه Firestore عشان يفضل على الخطة المجانية.
+   meta/latest بيقول للموبايلات (حتى والتطبيق مقفول) إن فيه رسالة جديدة عشان يطلع إشعار. */
+const CHUNK = 900 * 1024;
+const MAX_VIDEO = 60 * 1024 * 1024;
+let pendingImg = "", pendingVid = null;
+const videoCache = {};
+const msgTime = (m) => (m.createdAt?.toMillis ? m.createdAt.toMillis() : 0);
+const mb = (n) => `${ar((n / 1048576).toFixed(1))} ميجا`;
+const safeLink = (u) => (/^https?:\/\/\S+$/i.test(u || "") ? u : "");
+function getLastRead() { try { return +localStorage.getItem("msgs-last-read") || 0; } catch (_) { return 0; } }
+function setLastRead(v) { try { localStorage.setItem("msgs-last-read", String(v)); } catch (_) {} }
+function nativeSeen(id) { try { window.Android && window.Android.markSeen(id); } catch (_) {} }
+
+function updateBadge() {
+  const seen = getLastRead();
+  const n = S.messages.filter((m) => msgTime(m) > seen).length;
+  const b = $("msg-badge");
+  b.textContent = ar(n);
+  b.hidden = !n || !$("v-messages").hidden;
+}
+function markMessagesRead() {
+  const latest = S.messages[0];
+  if (latest) { setLastRead(Math.max(getLastRead(), msgTime(latest))); nativeSeen(latest.id); }
+  updateBadge();
+}
+
+function renderMessages() {
+  $("msgs").innerHTML = S.messages.map((m) => {
+    const when = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString("ar-EG", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }) : "";
+    const link = safeLink(m.link);
+    return `<li class="msg">
+      <div class="meta"><b>قائد الاجتماع</b><span>${esc(when)}</span></div>
+      ${m.text ? `<p class="txt">${esc(m.text)}</p>` : ""}
+      ${m.img ? `<img src="${m.img}" alt="صورة مع الرسالة" loading="lazy">` : ""}
+      ${m.video ? `<div data-vid="${m.id}"><button class="vid-btn" type="button"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>تشغيل الفيديو · ${mb(m.video.size)}</button></div>` : ""}
+      ${link ? `<a class="lnk" href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : ""}
+      ${S.isAdmin ? `<button class="btn small danger" data-delmsg="${m.id}" type="button" style="justify-self:start">حذف الرسالة</button>` : ""}
+    </li>`;
+  }).join("");
+  $("msgs-empty").hidden = S.messages.length > 0;
+  $("msgs").querySelectorAll("[data-vid]").forEach((box) => {
+    const m = S.messages.find((x) => x.id === box.dataset.vid);
+    if (videoCache[m.id]) box.innerHTML = `<video src="${videoCache[m.id]}" controls playsinline></video>`;
+    else box.querySelector("button").onclick = () => loadVideo(m, box);
+  });
+  $("msgs").querySelectorAll("[data-delmsg]").forEach((b) => (b.onclick = () => sheet(`
+    <h3>حذف الرسالة؟</h3><p style="margin:0">هتتمسح عند كل الشباب.</p>
+    <div class="actions"><button class="btn ghost" data-close type="button">رجوع</button><button class="btn danger" id="go" type="button">حذف</button></div>`,
+    (el) => (el.querySelector("#go").onclick = async () => {
+      const m = S.messages.find((x) => x.id === b.dataset.delmsg);
+      closeSheet();
+      try {
+        for (let i = 0; i < (m.video?.chunks || 0); i++) await deleteDoc(doc(db, "messages", m.id, "chunks", String(i)));
+        await deleteDoc(doc(db, "messages", m.id));
+        toast("اتحذفت الرسالة.");
+      } catch (_) { toast("مقدرناش نحذف. اتأكد من الإنترنت."); }
+    }))));
+}
+
+async function loadVideo(m, box) {
+  box.innerHTML = `<div class="progress"><span></span></div><p class="muted" style="margin:6px 0 0">بيحمّل الفيديو… ${mb(m.video.size)}</p>`;
+  const bar = box.querySelector(".progress span");
+  try {
+    const parts = [];
+    for (let i = 0; i < m.video.chunks; i++) {
+      const snap = await getDoc(doc(db, "messages", m.id, "chunks", String(i)));
+      parts.push(snap.data().d.toUint8Array());
+      bar.style.width = `${Math.round(((i + 1) / m.video.chunks) * 100)}%`;
+    }
+    const url = URL.createObjectURL(new Blob(parts, { type: m.video.type || "video/mp4" }));
+    videoCache[m.id] = url;
+    box.innerHTML = `<video src="${url}" controls playsinline autoplay></video>`;
+  } catch (_) {
+    box.innerHTML = `<button class="vid-btn" type="button">مقدرناش نحمّل الفيديو · جرب تاني</button>`;
+    box.querySelector("button").onclick = () => loadVideo(m, box);
+  }
+}
+
+function attachInfo() {
+  const parts = [];
+  if (pendingImg) parts.push("صورة جاهزة ✓");
+  if (pendingVid) parts.push(`فيديو ${mb(pendingVid.size)} ✓`);
+  $("m-info").textContent = parts.join(" · ");
+}
+$("m-img").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try { pendingImg = await compress(f); } catch (_) { toast("الصورة دي مش مدعومة."); pendingImg = ""; }
+  attachInfo();
+});
+$("m-vid").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > MAX_VIDEO) { toast(`الفيديو أكبر من ${mb(MAX_VIDEO)}. ابعته على واتساب لنفسك الأول عشان يصغر، أو حط لينك يوتيوب.`); e.target.value = ""; return; }
+  pendingVid = f; attachInfo();
+});
+
+$("msg-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("m-text").value.trim();
+  const rawLink = $("m-link").value.trim();
+  const link = rawLink && !/^https?:\/\//i.test(rawLink) ? "https://" + rawLink : rawLink;
+  if (!text && !pendingImg && !pendingVid && !link) return toast("اكتب رسالة أو اختار صورة أو فيديو.");
+  const btn = $("m-send"), prog = $("m-prog"), bar = prog.querySelector("span");
+  btn.disabled = true; prog.hidden = false; bar.style.width = "3%";
+  try {
+    const ref = doc(collection(db, "messages"));
+    let video = null;
+    if (pendingVid) {
+      btn.textContent = "بيرفع الفيديو…";
+      const buf = new Uint8Array(await pendingVid.arrayBuffer());
+      const chunks = Math.ceil(buf.length / CHUNK);
+      for (let i = 0; i < chunks; i++) {
+        await setDoc(doc(db, "messages", ref.id, "chunks", String(i)), { d: Bytes.fromUint8Array(buf.subarray(i * CHUNK, (i + 1) * CHUNK)) });
+        bar.style.width = `${Math.round(((i + 1) / chunks) * 95)}%`;
+      }
+      video = { chunks, size: buf.length, type: pendingVid.type || "video/mp4" };
+    }
+    await setDoc(ref, { text, img: pendingImg, link: safeLink(link), video, createdAt: serverTimestamp() });
+    const preview = text || (video ? "فيديو جديد 🎬" : pendingImg ? "صورة جديدة 📷" : "لينك جديد");
+    await setDoc(doc(db, "meta", "latest"), { id: ref.id, preview: preview.slice(0, 140), at: Date.now() });
+    nativeSeen(ref.id);
+    bar.style.width = "100%";
+    e.target.reset(); pendingImg = ""; pendingVid = null; attachInfo();
+    toast("اتبعتت الرسالة للكل ✓");
+  } catch (_) {
+    toast("الرسالة متبعتتش. اتأكد من الإنترنت وجرب تاني.");
+  }
+  btn.disabled = false; btn.textContent = "إرسال للكل";
+  setTimeout(() => { prog.hidden = true; bar.style.width = "0"; }, 800);
+});

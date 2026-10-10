@@ -90,5 +90,21 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if isAdmin();
     }
+
+    // رسائل قائد الاجتماع (نص/صورة/فيديو/لينك) — الفيديو مقسم أجزاء في chunks
+    match /messages/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+      match /chunks/{n} {
+        allow read: if signedIn();
+        allow write: if isAdmin();
+      }
+    }
+
+    // تنبيه صغير بآخر رسالة: الموبايل بيقراه في الخلفية عشان يطلع الإشعار
+    match /meta/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }
