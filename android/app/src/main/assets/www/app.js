@@ -29,45 +29,7 @@ function applySchedule(d = {}) {
   GEO.radius = Number.isInteger(d.radius) ? d.radius : 100;
   START = SCH.start; END = SCH.end;
   LEVELS.green.until = SCH.greenEnd; LEVELS.yellow.until = SCH.yellowEnd; LEVELS.red.until = SCH.end;
-  
-function renderGeoAdmin() {
-  const st = $("geo-status");
-  if (!st) return;
-  st.textContent = GEO.lat == null
-    ? "لسه مفيش مكان متثبت."
-    : GEO.on
-      ? `مفعّل ✓ · الشباب لازم يكونوا في حدود ${ar(GEO.radius)} متر من المكان المتثبت.`
-      : "المكان متثبت بس الشرط متوقف · أي حد يقدر يسجل من أي مكان.";
-  if (document.activeElement?.id !== "geo-radius") $("geo-radius").value = GEO.radius;
-  $("geo-on").checked = GEO.on;
-  $("geo-on").disabled = GEO.lat == null;
-  $("geo-map").hidden = GEO.lat == null;
-  if (GEO.lat != null) $("geo-map").href = `https://maps.google.com/?q=${GEO.lat},${GEO.lng}`;
-}
-async function saveGeo(patch, okMsg) {
-  try {
-    await setDoc(doc(db, "config", "app"), { ...patch, utcOffset: cairoNow().offset }, { merge: true });
-    toast(okMsg);
-  } catch (_) { toast("مقدرناش نحفظ. اتأكد إن قواعد الأمان متحدثة والإنترنت شغال."); }
-}
-$("geo-set").onclick = async () => {
-  const btn = $("geo-set");
-  btn.disabled = true; btn.textContent = "بنحدد مكانك…";
-  try {
-    const pos = await getPosition();
-    const { latitude, longitude, accuracy } = pos.coords;
-    const radius = Math.min(1000, Math.max(30, parseInt($("geo-radius").value, 10) || 100));
-    await saveGeo({ lat: latitude, lng: longitude, cosLat: Math.cos((latitude * Math.PI) / 180), radius, geoOn: true },
-      `اتثبت مكان الاجتماع ✓ (دقة الموبايل حوالي ${ar(Math.round(accuracy))} متر)`);
-  } catch (err) { geoSheet(geoError(err)); }
-  btn.disabled = false; btn.textContent = "📍 ثبّت مكان الاجتماع من مكاني دلوقتي";
-};
-$("geo-save").onclick = () => {
-  const radius = parseInt($("geo-radius").value, 10);
-  if (!(radius >= 30 && radius <= 1000)) return toast("المسافة لازم تبقى بين ٣٠ و ١٠٠٠ متر.");
-  saveGeo({ radius, geoOn: $("geo-on").checked && GEO.lat != null }, "اتحفظ ✓");
-};
-renderScheduleTexts();
+  renderScheduleTexts();
 }
 function fmtMins(m) {
   const h = Math.floor(m / 60), mi = m % 60, h12 = ((h + 11) % 12) + 1;
@@ -1003,4 +965,43 @@ $("sch-form").addEventListener("submit", async (e) => {
     toast("اتحفظت المواعيد ✓ وهتطبق عند كل الشباب");
   } catch (_) { toast("مقدرناش نحفظ. اتأكد إن قواعد الأمان متحدثة والإنترنت شغال."); }
 });
+
+/* ================= مكان الاجتماع (لقائد الاجتماع) ================= */
+function renderGeoAdmin() {
+  const st = $("geo-status");
+  if (!st) return;
+  st.textContent = GEO.lat == null
+    ? "لسه مفيش مكان متثبت."
+    : GEO.on
+      ? `مفعّل ✓ · الشباب لازم يكونوا في حدود ${ar(GEO.radius)} متر من المكان المتثبت.`
+      : "المكان متثبت بس الشرط متوقف · أي حد يقدر يسجل من أي مكان.";
+  if (document.activeElement?.id !== "geo-radius") $("geo-radius").value = GEO.radius;
+  $("geo-on").checked = GEO.on;
+  $("geo-on").disabled = GEO.lat == null;
+  $("geo-map").hidden = GEO.lat == null;
+  if (GEO.lat != null) $("geo-map").href = `https://maps.google.com/?q=${GEO.lat},${GEO.lng}`;
+}
+async function saveGeo(patch, okMsg) {
+  try {
+    await setDoc(doc(db, "config", "app"), { ...patch, utcOffset: cairoNow().offset }, { merge: true });
+    toast(okMsg);
+  } catch (_) { toast("مقدرناش نحفظ. اتأكد إن قواعد الأمان متحدثة والإنترنت شغال."); }
+}
+$("geo-set").onclick = async () => {
+  const btn = $("geo-set");
+  btn.disabled = true; btn.textContent = "بنحدد مكانك…";
+  try {
+    const pos = await getPosition();
+    const { latitude, longitude, accuracy } = pos.coords;
+    const radius = Math.min(1000, Math.max(30, parseInt($("geo-radius").value, 10) || 100));
+    await saveGeo({ lat: latitude, lng: longitude, cosLat: Math.cos((latitude * Math.PI) / 180), radius, geoOn: true },
+      `اتثبت مكان الاجتماع ✓ (دقة الموبايل حوالي ${ar(Math.round(accuracy))} متر)`);
+  } catch (err) { geoSheet(geoError(err)); }
+  btn.disabled = false; btn.textContent = "📍 ثبّت مكان الاجتماع من مكاني دلوقتي";
+};
+$("geo-save").onclick = () => {
+  const radius = parseInt($("geo-radius").value, 10);
+  if (!(radius >= 30 && radius <= 1000)) return toast("المسافة لازم تبقى بين ٣٠ و ١٠٠٠ متر.");
+  saveGeo({ radius, geoOn: $("geo-on").checked && GEO.lat != null }, "اتحفظ ✓");
+};
 renderScheduleTexts();
